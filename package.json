@@ -1,0 +1,17 @@
+{
+  "name": "pocketplan",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "@nimiq/mini-app-sdk": "^0.2.1",
+    "vite": "^7.1.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
