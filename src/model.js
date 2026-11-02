@@ -33,9 +33,26 @@ export function reconcile(goals, balance) {
   return { goals: next, reduced: true };
 }
 export function weekly(goal, today = new Date()) {
-  const end = new Date(goal.date + 'T23:59:59');
-  const weeks = Math.max(1, Math.ceil((end - today) / 604800000));
-  return Math.ceil(Math.max(0, goal.target - goal.allocated) / weeks);
+  const start = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const days = Math.round((Date.parse(goal.date+'T00:00:00Z') - start) / 86400000);
+  const weeks = Math.max(1, Math.ceil(days / 7));
+  const gap = BigInt(Math.max(0, goal.target-goal.allocated));
+  return Number((gap + BigInt(weeks) - 1n) / BigInt(weeks));
+}
+// Calendar-day guidance, independent of DST and the time of day a plan is opened.
+export function planOverview(goals, balance, today) {
+  validateGoals(goals);
+  if (!Number.isSafeInteger(balance) || balance < 0 || !validDate(today)) throw new Error('Refresh the balance before reviewing your plan.');
+  const incomplete = goals.filter(g => g.allocated < g.target).sort((a,b) => a.date.localeCompare(b.date));
+  const next = incomplete[0] || null;
+  const days = next ? Math.round((Date.parse(next.date+'T12:00:00Z') - Date.parse(today+'T12:00:00Z')) / 86400000) : null;
+  const gap = next ? next.target - next.allocated : 0;
+  const perWeek = next ? weekly(next,new Date(today+'T12:00:00')) : 0;
+  return { unassigned: Math.max(0, balance-total(goals)), next, days, gap, perWeek, complete:goals.length-incomplete.length };
+}
+export function validateBackup(data, network, address) {
+  if (!['mainnet','testnet','example'].includes(network) || !address || !data || data.version!==2 || data.network!==network || data.address!==address) throw new Error('Choose a version 2 PocketPlan backup for this address and network.');
+  return validateGoals(data.goals);
 }
 // Allocate only existing, unassigned funds. Earlier deadlines receive funds first.
 export function paydayPlan(goals, balance, income, percent, buffer) {
