@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { units, reconcile, total, weekly, paydayPlan, validateGoals, validDate } from '../src/model.js';
+import { units, reconcile, total, weekly, paydayPlan, validateGoals, validDate, planOverview, validateBackup } from '../src/model.js';
 test('amounts preserve integer Luna and reject invalid or unsafe values',()=>{
   assert.equal(units('0.00001'),1);assert.equal(units('1.23456'),123456);
   for(const value of ['-1','NaN','0','1.000001','1e30','999999999999999999999']) assert.throws(()=>units(value));
@@ -52,4 +52,34 @@ test('backups reject duplicate ids, malformed dates and unsafe aggregate allocat
   assert.throws(()=>validateGoals([{...goal,allocated:101}]));
   assert.throws(()=>validateGoals([g('a',Number.MAX_SAFE_INTEGER,Number.MAX_SAFE_INTEGER),g('b',1,1)]));
   assert.ok(validDate('2028-02-29'));assert.equal(validDate('2026-02-29'),false);
+});
+test('overview prioritises the earliest unfinished goal and protects the unassigned calculation',()=>{
+  const goals=[g('done',100,100,'2026-11-01'),g('later',800,100,'2026-12-01'),g('next',300,100,'2026-11-09')];
+  const result=planOverview(goals,500,'2026-11-02');
+  assert.equal(result.next.id,'next');assert.equal(result.days,7);assert.equal(result.perWeek,200);
+  assert.equal(weekly(result.next,new Date('2026-11-02T23:59:59')),result.perWeek,'goal cards and overview must use the same calendar-day target');
+  assert.equal(result.unassigned,200);assert.equal(result.complete,1);
+  assert.deepEqual(goals.map(g=>g.id),['done','later','next'],'reviewing must not reorder the stored goals');
+  assert.equal(planOverview(goals,100,'2026-11-02').unassigned,0);
+  assert.equal(planOverview([],0,'2026-11-02').next,null);
+  assert.equal(planOverview([g('done',100,100)],100,'2026-11-02').next,null);
+});
+test('overview handles today, overdue dates, leap days and precise small amounts',()=>{
+  assert.equal(planOverview([g('now',3,0,'2026-11-02')],10,'2026-11-02').days,0);
+  const overdue=planOverview([g('late',3,0,'2026-11-01')],10,'2026-11-02');
+  assert.equal(overdue.days,-1);assert.equal(overdue.perWeek,3);
+  const leap=planOverview([g('leap',3,0,'2028-03-01')],10,'2028-02-28');
+  assert.equal(leap.days,2);
+  assert.equal(planOverview([g('tiny',1,0,'2026-12-01')],10,'2026-11-02').perWeek,1);
+  assert.throws(()=>planOverview([],NaN,'2026-11-02'));
+  assert.throws(()=>planOverview([],0,'2026-02-30'));
+});
+test('backup restore refuses a different wallet, network or version and preserves the v2 format',()=>{
+  const backup={version:2,network:'mainnet',address:'wallet-a',goals:[g('one',100,10)]};
+  assert.deepEqual(validateBackup(backup,'mainnet','wallet-a'),backup.goals);
+  assert.throws(()=>validateBackup(backup,'testnet','wallet-a'));
+  assert.throws(()=>validateBackup(backup,'mainnet','wallet-b'));
+  assert.throws(()=>validateBackup({...backup,version:1},'mainnet','wallet-a'));
+  assert.throws(()=>validateBackup({...backup,goals:[...backup.goals,...backup.goals]},'mainnet','wallet-a'));
+  assert.throws(()=>validateBackup(backup,'unknown','wallet-a'));
 });
